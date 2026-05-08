@@ -1,0 +1,6 @@
+*.o
+*.elf
+.clang-format
+.direnv/
+.cache/
+compile_commands.json
