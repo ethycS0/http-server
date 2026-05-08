@@ -1,5 +1,5 @@
-#ifndef HTTP_SERVER
-#define HTTP_SERVER
+#ifndef HTTP_SERVER_H
+#define HTTP_SERVER_H
 
 #include <arpa/inet.h>
 #include <stdbool.h>
@@ -18,4 +18,4 @@ int init_server(char *ip_address, int port);
 void deinit_server();
 int start_listening();
 
-#endif // !HTTP_SERVER
+#endif // !HTTP_SERVER_H

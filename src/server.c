@@ -1,17 +1,26 @@
 #include "server.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define LOG(msg) printf("[LOG] %s:%d: %s\n", __FILE__, __LINE__, msg)
-#define ERR(msg) printf("[ERR] %s:%d: %s\n", __FILE__, __LINE__, msg)
+#define LOG(fmt, ...)                                                                                                  \
+        do {                                                                                                           \
+                printf("[LOG] %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);                                   \
+        } while (0)
+#define ERR(fmt, ...)                                                                                                  \
+        do {                                                                                                           \
+                fprintf(stderr, "[ERR] %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);                          \
+        } while (0)
 
 const int BUFFER_SIZE = 8192;
 const int MAX_LISTENERS = 32;
+const char *hello_world =
+    "<!DOCTYPE html><html lang=\"en\"><body><h1> HOME </h1><p> Hello, World! :) </p></body></html>";
 
 static server_t server;
 
@@ -63,29 +72,30 @@ void deinit_server() {
 }
 
 int server_spin_some() {
-        server.newsocket = accept(server.socket, (struct sockaddr *)&server.sock_addr, (socklen_t *)&server.sock_addr);
+        struct sockaddr client_addr;
+        socklen_t client_len = sizeof(client_addr);
+
+        server.newsocket = accept(server.socket, &client_addr, &client_len);
         if (server.newsocket < 0) {
-                ERR("Failed to accept connection.");
+                ERR("Failed to accept connection: %d", errno);
                 return -1;
         }
 
         char *read_buffer = (char *)malloc(BUFFER_SIZE);
 
-        if (read(server.newsocket, read_buffer, BUFFER_SIZE) < 0) {
+        if (recv(server.newsocket, read_buffer, BUFFER_SIZE, 0) < 0) {
                 ERR("Failed to read data.");
+                close(server.newsocket);
                 return -1;
         }
 
         LOG("Received data from client");
 
-        const char *hello_world =
-            "<!DOCTYPE html><html lang=\"en\"><body><h1> HOME </h1><p> Hello, World! :) </p></body></html>";
-
         char response[256];
         snprintf(response, sizeof(response), "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: %zu \n\n %s ",
                  strlen(hello_world), hello_world);
 
-        if (write(server.newsocket, response, sizeof(response)) != sizeof(response)) {
+        if (send(server.newsocket, response, sizeof(response), 0) != sizeof(response)) {
                 ERR("Error Responding to client.");
         } else {
                 LOG("Response sent.");
@@ -109,12 +119,7 @@ int start_listening() {
                 return -1;
         }
 
-        char buff[64];
-
-        snprintf(buff, sizeof(buff), "Server Listening: %s:%d \n", inet_ntoa(server.sock_addr.sin_addr),
-                 ntohs(server.sock_addr.sin_port));
-
-        LOG(buff);
+        LOG("Server Listening: %s:%d \n", inet_ntoa(server.sock_addr.sin_addr), ntohs(server.sock_addr.sin_port));
 
         while (true) {
                 LOG("Waiting for new connection...");
