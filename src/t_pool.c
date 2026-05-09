@@ -52,6 +52,7 @@ int add_threads(int count) {
                         pthread_mutex_unlock(&thread_pool_mutex);
                         return i;
                 }
+                pthread_detach(new_thread->thread.tid);
 
                 new_thread->prev = thread_pool_head;
                 thread_pool_head = new_thread;
@@ -117,6 +118,35 @@ int init_workers(void *(*routine)(void *)) {
                 ERR("Failed to Initialize Workers.");
                 return -1;
         }
+}
+
+void deinit_workers() {
+        if (atomic_load(&init_pool) == false) {
+                LOG("Thread pool is already uninitialized.");
+                return;
+        }
+        atomic_store(&init_pool, false);
+
+        pthread_mutex_lock(&thread_pool_mutex);
+
+        thread_node_t *current = thread_pool_head;
+        int killed_count = 0;
+
+        while (current != NULL) {
+                pthread_cancel(current->thread.tid);
+                thread_node_t *node_to_remove = current;
+                current = current->prev;
+                free(node_to_remove);
+
+                killed_count++;
+        }
+
+        thread_pool_head = NULL;
+        atomic_store(&thread_count, 0);
+
+        pthread_mutex_unlock(&thread_pool_mutex);
+
+        LOG("Thread pool completely dismantled. %d workers cancelled.", killed_count);
 }
 
 void scale_threads(int load) {

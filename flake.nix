@@ -27,6 +27,7 @@
             bear
             gcc
             gdb
+            gtest
           ];
 
           shellHook = "";
