@@ -1,15 +1,6 @@
 #ifndef QUEUE_H
 #define QUEUE_H
 
-#ifdef __cplusplus
-#include <atomic>
-using std::atomic_bool;
-using std::atomic_load;
-using std::atomic_store;
-#else
-#include <stdatomic.h>
-#endif
-
 #include <pthread.h>
 #include <stdbool.h>
 
@@ -20,8 +11,7 @@ typedef struct {
 } request_t;
 
 typedef struct {
-        atomic_bool init;
-        atomic_bool shutdown;
+        bool shutdown;
         int head;
         int tail;
         int count;
@@ -34,8 +24,9 @@ typedef struct {
 extern "C" {
 #endif
 
-int init_queue(queue_t *queue);
-int deinit_queue(queue_t *queue);
+void init_queue(queue_t *queue);
+void shutdown_queue(queue_t *queue);
+void destroy_queue(queue_t *queue);
 int enqueue(queue_t *queue, void *args);
 void *dequeue(queue_t *queue);
 
