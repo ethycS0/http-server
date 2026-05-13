@@ -28,6 +28,7 @@
             gcc
             gdb
             gtest
+            apacheHttpd
           ];
 
           shellHook = "";
