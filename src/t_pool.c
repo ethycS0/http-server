@@ -1,8 +1,6 @@
 #include "t_pool.h"
 #include "log.h"
 
-#include <pthread.h>
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,23 +8,20 @@
 #define MAX_WORKERS 16
 #define MIN_WORKERS 4
 
-enum thread_state { WORKER_BUSY, WORKER_IDLE };
-
-typedef struct thread_t {
-        atomic_int state;
-        pthread_t tid;
-} thread_t;
-
 typedef struct thread_node_t {
-        thread_t thread;
+        thread_args_t thread;
         struct thread_node_t *prev;
 } thread_node_t;
 
-static pthread_mutex_t thread_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
-static atomic_int thread_count = 0;
 static void *(*worker_routine)(void *);
-static atomic_bool init_pool = false;
+static void *worker_args;
+
+static pthread_mutex_t thread_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
 static thread_node_t *thread_pool_head = NULL;
+pthread_mutex_t debug_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static atomic_int thread_count = 0;
+static atomic_bool init_pool = false;
 
 int add_threads(int count) {
         pthread_mutex_lock(&thread_pool_mutex);
@@ -43,16 +38,16 @@ int add_threads(int count) {
                         return i;
                 }
 
-                atomic_store(&new_thread->thread.state, WORKER_IDLE);
+                atomic_store(&new_thread->thread.t_state.state, WORKER_IDLE);
                 atomic_fetch_add(&thread_count, 1);
-                if (pthread_create(&new_thread->thread.tid, NULL, worker_routine, NULL) != 0) {
+                if (pthread_create(&new_thread->thread.t_state.tid, NULL, worker_routine, &new_thread->thread) != 0) {
                         ERR("Failed to create thread.");
                         atomic_fetch_sub(&thread_count, 1);
                         free(new_thread);
                         pthread_mutex_unlock(&thread_pool_mutex);
                         return i;
                 }
-                pthread_detach(new_thread->thread.tid);
+                pthread_detach(new_thread->thread.t_state.tid);
 
                 new_thread->prev = thread_pool_head;
                 thread_pool_head = new_thread;
@@ -74,8 +69,8 @@ void remove_threads(int count, bool force_cleanup) {
         }
 
         while (current != NULL && removed_count < count) {
-                if (atomic_load(&current->thread.state) == WORKER_IDLE) {
-                        pthread_cancel(current->thread.tid);
+                if (atomic_load(&current->thread.t_state.state) == WORKER_IDLE) {
+                        pthread_cancel(current->thread.t_state.tid);
 
                         thread_node_t *node = current;
                         if (prev_thread == NULL) {
@@ -101,14 +96,16 @@ void remove_threads(int count, bool force_cleanup) {
         pthread_mutex_unlock(&thread_pool_mutex);
 }
 
-int init_workers(void *(*routine)(void *)) {
+int init_workers(void *(*routine)(void *), void *args) {
         if (atomic_load(&init_pool) == true) {
-                ERR("Workers already initialized.");
+                ERR("Thread pool already initialized.");
                 return -1;
         }
 
         worker_routine = routine;
+        worker_args = args;
         int workers = add_threads(MIN_WORKERS);
+
         if (workers == MIN_WORKERS) {
                 LOG("Workers started successfully.");
                 atomic_store(&init_pool, true);
@@ -133,7 +130,7 @@ void deinit_workers() {
         int killed_count = 0;
 
         while (current != NULL) {
-                pthread_cancel(current->thread.tid);
+                pthread_cancel(current->thread.t_state.tid);
                 thread_node_t *node_to_remove = current;
                 current = current->prev;
                 free(node_to_remove);
@@ -150,17 +147,39 @@ void deinit_workers() {
 }
 
 void scale_threads(int load) {
-        int current_threads = atomic_load(&thread_count);
         if (atomic_load(&init_pool) == false) {
                 ERR("Workers not initialized.");
                 return;
         }
 
+        int current_threads = get_current_threads();
+
         if (load > current_threads && current_threads < MAX_WORKERS) {
                 add_threads((load - current_threads));
-                LOG("Dynamic Scaling Complete. Current Workers: %d", atomic_load(&thread_count));
+                LOG("Dynamic Scaling Complete. Current Workers: %d", get_current_threads());
         } else if (load < current_threads && current_threads > MIN_WORKERS) {
                 remove_threads((current_threads - load), false);
-                LOG("Dynamic Scaling Complete. Current Workers: %d", atomic_load(&thread_count));
+                LOG("Dynamic Scaling Complete. Current Workers: %d", get_current_threads());
         }
+}
+
+int get_current_threads() { return atomic_load(&thread_count); }
+
+int get_current_free_threads() {
+        if (atomic_load(&init_pool) == false) {
+                ERR("Workers not initialized.");
+                return -1;
+        }
+
+        thread_node_t *current = thread_pool_head;
+        int free_threads = 0;
+
+        while (current != NULL) {
+                if (atomic_load(&current->thread.t_state.state) == WORKER_IDLE) {
+                        free_threads += 1;
+                }
+                current = current->prev;
+        }
+
+        return free_threads;
 }

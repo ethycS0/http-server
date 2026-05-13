@@ -9,7 +9,6 @@ typedef struct server_t {
         bool init;
         int port;
         int socket;
-        int newsocket;
         unsigned int len_sockaddr;
         struct sockaddr_in sock_addr;
 } server_t;
