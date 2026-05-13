@@ -4,6 +4,9 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+#define MAX_WORKERS 16
+#define MIN_WORKERS 2
+
 enum thread_state { WORKER_BUSY, WORKER_IDLE };
 
 typedef struct thread_t {
@@ -21,20 +24,5 @@ int get_current_free_threads();
 int init_workers(void *(*routine)(void *), void *args);
 void deinit_workers();
 void scale_threads(int load);
-
-// Queue
-//
-// enqueue() dequeue() argument required is queue_t*
-//
-//
-// Thread Pool
-//
-// scale_threads() {add / remove threads}
-// all threads created -> worker function
-// pass2 arguments -> actual function + Queue
-//
-// worker function
-// takes arguemnts, runs a while loop, calls dequeue() and run actual function with dequeue args
-//
 
 #endif

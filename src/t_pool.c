@@ -5,9 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MAX_WORKERS 16
-#define MIN_WORKERS 4
-
 typedef struct thread_node_t {
         thread_args_t thread;
         struct thread_node_t *prev;

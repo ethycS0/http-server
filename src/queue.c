@@ -68,3 +68,11 @@ void *dequeue(queue_t *queue) {
         pthread_mutex_unlock(&queue->mutex);
         return args;
 }
+
+int get_queue_count(queue_t *queue) {
+        pthread_mutex_lock(&queue->mutex);
+        int count = queue->count;
+        pthread_mutex_unlock(&queue->mutex);
+
+        return count;
+}

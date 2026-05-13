@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#define QUEUE_SIZE 16
+#define QUEUE_SIZE 256
 
 typedef struct {
         void *args;
@@ -29,6 +29,7 @@ void shutdown_queue(queue_t *queue);
 void destroy_queue(queue_t *queue);
 int enqueue(queue_t *queue, void *args);
 void *dequeue(queue_t *queue);
+int get_queue_count(queue_t *queue);
 
 #ifdef __cplusplus
 }

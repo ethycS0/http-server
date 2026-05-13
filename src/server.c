@@ -13,12 +13,65 @@
 #include <unistd.h>
 
 const int BUFFER_SIZE = 8192;
-const int MAX_LISTENERS = 32;
-const char *hello_world =
-    "<!DOCTYPE html><html lang=\"en\"><body><h1> HOME </h1><p> Hello, World! :) </p></body></html>";
+const int MAX_LISTENERS = 4096;
+const char *bigger_website =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"en\">\n"
+    "<head>\n"
+    "    <meta charset=\"UTF-8\">\n"
+    "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+    "    <title>C Web Server Dashboard</title>\n"
+    "    <style>\n"
+    "        body { font-family: system-ui, -apple-system, sans-serif; background-color: #1e1e2e; color: #cdd6f4; "
+    "margin: 0; padding: 0; }\n"
+    "        header { background-color: #11111b; border-bottom: 2px solid #89b4fa; padding: 2rem; text-align: center; "
+    "}\n"
+    "        header h1 { margin: 0; color: #89b4fa; }\n"
+    "        main { max-width: 800px; margin: 3rem auto; background: #313244; padding: 2.5rem; border-radius: 12px; "
+    "box-shadow: 0 10px 15px rgba(0,0,0,0.3); }\n"
+    "        .stats { display: flex; gap: 1.5rem; margin-top: 2rem; }\n"
+    "        .stat-card { flex: 1; background: #45475a; padding: 1.5rem; border-radius: 8px; text-align: center; "
+    "transition: transform 0.2s; }\n"
+    "        .stat-card:hover { transform: translateY(-5px); }\n"
+    "        .stat-card h2 { margin: 0; font-size: 2.5rem; color: #a6e3a1; }\n"
+    "        .stat-card p { margin: 0.5rem 0 0; font-weight: bold; color: #bac2de; text-transform: uppercase; "
+    "letter-spacing: 1px; font-size: 0.85rem; }\n"
+    "        footer { text-align: center; padding: 2rem; color: #6c7086; font-size: 0.9rem; }\n"
+    "    </style>\n"
+    "</head>\n"
+    "<body>\n"
+    "    <header>\n"
+    "        <h1>\xE2\x9A\xA1 Blazing Fast C Server</h1>\n" // \xE2\x9A\xA1 is the UTF-8 hex for the ⚡ emoji
+    "        <p>Serving traffic via Lock-Free Ring Buffers</p>\n"
+    "    </header>\n"
+    "    <main>\n"
+    "        <h2 style=\"color: #f9e2af; margin-top: 0;\">System Status: Online</h2>\n"
+    "        <p style=\"line-height: 1.6;\">Welcome to the dashboard. This page is currently being served directly "
+    "from the server's RAM. The architecture utilizes a lock-free Multi-Producer Multi-Consumer (MPMC) queue, allowing "
+    "for zero-mutex thread pool management and sub-millisecond response times.</p>\n"
+    "        <div class=\"stats\">\n"
+    "            <div class=\"stat-card\">\n"
+    "                <h2>19.7k</h2>\n"
+    "                <p>Peak RPS</p>\n"
+    "            </div>\n"
+    "            <div class=\"stat-card\">\n"
+    "                <h2>< 8ms</h2>\n"
+    "                <p>Max Latency</p>\n"
+    "            </div>\n"
+    "            <div class=\"stat-card\">\n"
+    "                <h2>0</h2>\n"
+    "                <p>Dropped Packets</p>\n"
+    "            </div>\n"
+    "        </div>\n"
+    "    </main>\n"
+    "    <footer>\n"
+    "        Powered by raw C and Linux POSIX APIs.\n"
+    "    </footer>\n"
+    "</body>\n"
+    "</html>";
 
 static server_t server;
-
+pthread_t scaling_thread;
 queue_t request_queue;
 
 void *handle_requests(void *args) {
@@ -37,26 +90,51 @@ void *handle_requests(void *args) {
                         continue;
                 }
 
-                LOG("Received data from client");
-
-                char response[256];
+                char response[8192];
                 snprintf(response, sizeof(response),
-                         "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: %zu \n\n %s ", strlen(hello_world),
-                         hello_world);
+                         "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: %zu \n\n %s ",
+                         strlen(bigger_website), bigger_website);
 
                 if (send(client_socket, response, sizeof(response), 0) != sizeof(response)) {
                         ERR("Error Responding to client.");
-                } else {
-                        LOG("Response sent.");
                 }
-
-                sleep(10);
-                LOG("Thread Work done.");
 
                 free(read_buffer);
                 close(client_socket);
                 atomic_store(&thread_args->t_state.state, WORKER_IDLE);
         }
+}
+
+void scale_server() {
+        int total_threads = get_current_threads();
+        int free_threads = get_current_free_threads();
+        int queue_count = get_queue_count(&request_queue);
+
+        LOG("Monitor - Total: %d, Free: %d, Queued: %d", total_threads, free_threads, queue_count);
+
+        if (queue_count > 0 && free_threads == 0) {
+                if (total_threads < MAX_WORKERS) {
+                        int target_threads = total_threads + queue_count;
+                        if (target_threads > MAX_WORKERS) {
+                                target_threads = MAX_WORKERS;
+                        }
+                        scale_threads(target_threads);
+                }
+
+        } else if (queue_count == 0 && free_threads > MIN_WORKERS) {
+                int target_threads = total_threads - 1;
+                if (target_threads >= MIN_WORKERS) {
+                        scale_threads(target_threads);
+                }
+        }
+}
+
+void *monitor_thread_spin(void *) {
+        while (server.init) {
+                sleep(1);
+                scale_server();
+        }
+        return NULL;
 }
 
 int init_server(char *ip_address, int port) {
@@ -100,6 +178,10 @@ int init_server(char *ip_address, int port) {
         }
 
         server.init = true;
+
+        pthread_create(&scaling_thread, NULL, monitor_thread_spin, NULL);
+        pthread_detach(scaling_thread);
+
         LOG("Server Started.");
 
         return 0;
@@ -137,9 +219,6 @@ int server_spin_some() {
                 return -1;
         }
 
-        LOG("Got Connection: %d. Current Free Threads: %d/%d", *newsocket, get_current_free_threads(),
-            get_current_threads());
-
         return 0;
 }
 
@@ -154,10 +233,9 @@ int start_listening() {
                 return -1;
         }
 
-        LOG("Server Listening: %s:%d \n", inet_ntoa(server.sock_addr.sin_addr), ntohs(server.sock_addr.sin_port));
+        LOG("Server Listening: %s:%d", inet_ntoa(server.sock_addr.sin_addr), ntohs(server.sock_addr.sin_port));
 
         while (true) {
-                LOG("Waiting for new connection...");
                 server_spin_some();
         }
 
